@@ -9,8 +9,9 @@ Variáveis de ambiente:
   IG_TOKEN       chave de acesso do Instagram (segredo do repositório)  [obrigatória]
   IG_API_VERSION versão da Graph API (padrão v23.0)
   BASE_URL_VIDEO endereço público onde os vídeos ficam (padrão: GitHub Pages do repositório)
-  MODO           "publicar" (padrão), "conferir" (só a chave e a fila) ou
-                 "teste" (cria um reel de teste com videos/_teste.mp4 e NÃO publica)
+  MODO           "publicar" (padrão), "conferir" (só a chave e a fila),
+                 "teste" (cria um reel de teste com videos/_teste.mp4 e NÃO publica) ou
+                 "medir" (lê os insights de 48 h dos reels publicados)
 """
 from __future__ import annotations
 
@@ -33,11 +34,12 @@ TOKEN = os.environ.get("IG_TOKEN", "").strip()
 MODO = os.environ.get("MODO", "publicar").strip() or "publicar"
 DRY_RUN = MODO == "conferir"
 
-# Travas de segurança (espelham o vault: teto de 3 reels/dia, >= 4 h entre reels;
-# os remixes saem pelo app, então pela API o teto é menor).
-MAX_API_POR_DIA = 2
-MIN_HORAS_ENTRE_API = 4
-MAX_ATRASO_HORAS = 12          # passou disso, não publica: marca como atrasado
+# Travas de segurança (espelham o vault, "Análise de Reels - Remix e Teste" de 22/10/2026):
+# base normal 07h pela API + camada de teste 09h30 · 14h · 19h30 (mínimo de 2 h entre testes).
+# Os remixes das 11h e 17h saem pelo app e não passam por aqui.
+MAX_API_POR_DIA = 4
+MIN_HORAS_ENTRE_API = 2
+MAX_ATRASO_HORAS = 3           # passou disso, não publica: marca como atrasado
 GRADUACOES = {"SS_PERFORMANCE", "MANUAL"}
 
 resumo: list[str] = []
@@ -119,6 +121,8 @@ def validar(item: dict) -> None:
         raise ValueError("graduacao deve ser SS_PERFORMANCE ou MANUAL")
     if len(item["legenda"]) > 2200:
         raise ValueError("legenda passa de 2.200 caracteres")
+    if item.get("teste", True) and item.get("colaboradores"):
+        raise ValueError("collab sai sempre normal: não pode ser reel de teste")
 
 
 def esperar_video_publico(url: str) -> None:
@@ -149,6 +153,8 @@ def publicar(item: dict, ig_id: str) -> dict:
         params["collaborators"] = json.dumps(item["colaboradores"][:3])
     if item.get("teste", True):
         params["trial_params"] = json.dumps({"graduation_strategy": item.get("graduacao", "SS_PERFORMANCE")})
+    if item.get("ia"):
+        params["is_ai_generated"] = "true"     # selo "Informações de IA" (API desde 22/06/2026)
 
     container = api("POST", f"{ig_id}/media", **params)["id"]
     log(f"  contêiner criado, aguardando o Instagram processar o vídeo")
@@ -196,9 +202,47 @@ def teste_container() -> int:
     return 1
 
 
+METRICAS = ["views", "reach", "shares", "saved", "likes", "comments"]
+
+
+def medir() -> int:
+    """Lê os insights dos reels publicados há 48 h ou mais e grava no JSON de cada um."""
+    lidos = 0
+    for arq in sorted(PUBLICADOS.glob("*.json")):
+        with arq.open(encoding="utf-8") as f:
+            item = json.load(f)
+        if item.get("status") != "publicado" or item.get("insights_48h") or not item.get("media_id"):
+            continue
+        quando = dt.datetime.fromisoformat(item["publicado_em"]).astimezone(BRT)
+        if agora() - quando < dt.timedelta(hours=48):
+            continue
+        valores, faltou = {}, []
+        for m in METRICAS:
+            try:
+                r = api("GET", f"{item['media_id']}/insights", metric=m)
+                valores[m] = r["data"][0]["values"][0]["value"]
+            except (RuntimeError, KeyError, IndexError):
+                faltou.append(m)
+        item["insights_48h"] = valores
+        item["insights_lidos_em"] = agora().isoformat(timespec="seconds")
+        if faltou:
+            item["insights_nao_lidos"] = faltou
+        with arq.open("w", encoding="utf-8") as f:
+            json.dump(item, f, ensure_ascii=False, indent=2)
+        lidos += 1
+        log(f"{arq.name}: {valores}")
+    log(f"Insights lidos: {lidos}")
+    return 0
+
+
 def main() -> int:
     if MODO == "teste":
         return teste_container()
+    if MODO == "medir":
+        if not TOKEN:
+            log("IG_TOKEN não configurado.")
+            return 1
+        return medir()
     fila = ler_fila()
     vencidos = [(a, i) for a, i in fila if i["_quando"] <= agora()]
     if not vencidos and not DRY_RUN:

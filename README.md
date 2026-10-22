@@ -30,18 +30,24 @@ Roda no GitHub Actions a cada 30 minutos, com o computador desligado. Os remixes
 - `teste`: `true` = reel de teste. `false` = vai direto para os seguidores (reels de venda com preço e de prova social).
 - `graduacao`: `SS_PERFORMANCE` = o Instagram compartilha com os seguidores se performar; `MANUAL` = só você, pelo app.
 - `capa_ms`: momento do vídeo (em milissegundos) usado como capa. Opcional.
-- `colaboradores`: lista de até 3 @ (sem o @) para convite de collab. Opcional.
+- `colaboradores`: lista de até 3 @ (sem o @) para convite de collab. Opcional. **Collab sai sempre normal** (`teste: false`).
+- `ia`: `true` liga o selo "Informações de IA" (vídeos do Cientista Maluco).
 
 Vídeo: MP4 (H.264 + AAC), vertical 9:16, 15 a 30 s, até ~50 MB.
 
 ## Travas de segurança
 
-Espelham o Vault OKL (teto de 3 reels por dia, ao menos 4 h entre eles):
+Espelham o Vault OKL ("Análise de Reels - Remix e Teste", 22/10/2026): base normal às 07h pela API, camada de teste às 09h30, 14h e 19h30; remixes das 11h e 17h pelo app.
 
-- no máximo **2 publicações pela API por dia** (os remixes do app completam o dia);
-- pelo menos **4 h** entre duas publicações pela API;
+- no máximo **4 publicações pela API por dia**;
+- pelo menos **2 h** entre duas publicações pela API;
 - **1 publicação por rodada**;
-- passou mais de **12 h** do horário, não publica: marca como atrasado para não furar a cadência.
+- passou mais de **3 h** do horário, não publica: marca como atrasado para não furar a cadência;
+- reel de teste com coautor é recusado (collab sai sempre normal).
+
+## Insights
+
+Todo dia às 08h23 o robô lê views, alcance, compartilhamentos, salvamentos, curtidas e comentários dos reels publicados há 48 h ou mais e grava em `insights_48h` no JSON de cada um, em `publicados/`.
 
 ## Configuração (uma vez)
 

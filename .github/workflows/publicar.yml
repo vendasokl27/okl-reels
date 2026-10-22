@@ -3,12 +3,13 @@ name: Publicar reels
 on:
   schedule:
     - cron: "7,37 * * * *"      # a cada 30 min; publica o que já passou do horário
+    - cron: "23 11 * * *"       # 08h23 de Brasília: lê os insights de 48 h
   workflow_dispatch:
     inputs:
       modo:
         description: "conferir = só a chave e a fila · teste = cria um reel de teste sem publicar · publicar = publica o que venceu"
         type: choice
-        options: [conferir, teste, publicar]
+        options: [conferir, teste, publicar, medir]
         default: conferir
 
 concurrency:
@@ -31,7 +32,7 @@ jobs:
       - name: Publicar o que está com horário vencido
         env:
           IG_TOKEN: ${{ secrets.IG_TOKEN }}
-          MODO: ${{ github.event.inputs.modo || 'publicar' }}
+          MODO: ${{ github.event.inputs.modo || (github.event.schedule == '23 11 * * *' && 'medir') || 'publicar' }}
         run: python scripts/publicar.py
       - name: Gravar o resultado no repositório
         if: always()
