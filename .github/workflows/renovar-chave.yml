@@ -1,0 +1,24 @@
+name: Renovar chave do Instagram
+
+on:
+  schedule:
+    - cron: "17 13 1,15 * *"    # dias 1 e 15, 10h17 de Brasília
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  renovar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests==2.32.3
+      - name: Renovar
+        env:
+          IG_TOKEN: ${{ secrets.IG_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: python scripts/renovar_chave.py
