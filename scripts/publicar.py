@@ -15,10 +15,12 @@ Variáveis de ambiente:
                  "colab" (diagnóstico de colaboradores na API + conferência dos collabs)
 
 Collab automático (24/10/2026): todo reel que vai para os seguidores (teste: false) sai com
-o bonde de bonde.json convidado (fixas + 1 da rotação, até 3, limite da API). Todo dia o
-robô lê quem aceitou nos posts de 1 a 7 dias, inclusive os feitos no app, atualiza o placar,
-tira do bonde quem deixar 2 convites seguidos pendentes e abre um aviso (issue) quando um
-post de ontem tem convite pendente que vale trocar no app.
+o bonde de bonde.json convidado (fixas + 1 da rotação, até 3, limite da API). Criação com
+colaborador testada em 24/10 (contêiner aceito, formato json).
+A conferência diária de aceites (placar, saída automática após 2 convites seguidos
+pendentes e aviso por issue) está pronta, mas DORMENTE: com a chave atual (login do
+Instagram) a API responde "nonexisting field (collaborators)"; a Meta só libera a leitura
+com login do Facebook. O modo 'colab' testa de novo.
 """
 from __future__ import annotations
 
@@ -386,6 +388,11 @@ def conferir_colab(ig_id: str | None = None) -> int:
     b = ler_bonde()
     if not b:
         log("bonde.json não existe: conferência de collab pulada.")
+        return 0
+    if str(b.get("leitura_colaboradores", "")).startswith("indisponível") and MODO != "colab":
+        # A chave atual (login do Instagram) não lê /collaborators: a Meta só libera com login do Facebook.
+        # Rodar o modo 'colab' testa de novo (por exemplo, depois de trocar a chave).
+        log("Conferência de collab pulada: a chave atual não lê colaboradores (rode o modo 'colab' para testar de novo).")
         return 0
     if ig_id is None:
         eu = api("GET", "me", fields="user_id,username")
