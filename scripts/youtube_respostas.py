@@ -350,6 +350,10 @@ def pegar_token():
         }, form=True)
     except ErroAPI as e:
         print(f"Não consegui entrar na conta do canal: {e}")
+        for nome, pref in (("YT_CLIENT_SECRET", 7), ("YT_REFRESH_TOKEN", 3)):
+            v = os.environ[nome]
+            print(f"  diagnóstico {nome}: {len(v.strip())} caracteres, começa com {v.strip()[:pref]!r}, "
+                  f"espaço ou quebra no meio: {bool(re.search(r'\s', v.strip()))}")
         print("Se for invalid_grant, a autorização foi revogada ou expirou: gerar um refresh token novo "
               "(passo a passo na nota do vault 'YouTube - Canal e Shorts') e gravar em YT_REFRESH_TOKEN.")
         sys.exit(1)
