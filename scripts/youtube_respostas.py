@@ -341,10 +341,17 @@ def pegar_token():
     if faltando:
         print("Ainda não configurado (segredos faltando: " + ", ".join(faltando) + "). Nada a fazer.")
         sys.exit(0)
+    # Colagem com sobra (chave colada duas vezes, texto do botão junto) acontece: aproveita só a chave.
+    segredo = os.environ["YT_CLIENT_SECRET"].strip()
+    achado = re.search(r"GOCSPX-[A-Za-z0-9_\-]{28}", segredo)
+    if achado and achado.group(0) != segredo:
+        print(f"Aviso: YT_CLIENT_SECRET tem {len(segredo)} caracteres; usando só a chave GOCSPX (35). "
+              "Vale regravar o segredo só com a chave.")
+        segredo = achado.group(0)
     try:
         r = http("POST", "https://oauth2.googleapis.com/token", {
             "client_id": os.environ["YT_CLIENT_ID"].strip(),
-            "client_secret": os.environ["YT_CLIENT_SECRET"].strip(),
+            "client_secret": segredo,
             "refresh_token": os.environ["YT_REFRESH_TOKEN"].strip(),
             "grant_type": "refresh_token",
         }, form=True)
