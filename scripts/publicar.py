@@ -28,6 +28,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import random
 import sys
 import time
 
@@ -50,6 +51,13 @@ MAX_API_POR_DIA = 4
 MIN_HORAS_ENTRE_API = 2
 MAX_ATRASO_HORAS = 3           # passou disso, não publica: marca como atrasado
 GRADUACOES = {"SS_PERFORMANCE", "MANUAL"}
+
+# Stories (24/10/2026): vitrine de peças à venda, imagem JPEG 1080x1920 em videos/stories/.
+# Não contam no teto dos reels. Saem todos os stories vencidos na mesma rodada, em ordem de
+# nome do arquivo, com pausa irregular entre um e outro (ritmo humano, OKL/AGENTS.md).
+MAX_STORIES_POR_DIA = 15
+MAX_STORIES_POR_RODADA = 10
+PAUSA_STORY_S = (8, 20)
 
 BONDE = RAIZ / "bonde.json"
 RELATORIO_COLAB = RAIZ / "relatorios" / "collab.md"
@@ -108,12 +116,19 @@ def ler_fila() -> list[tuple[pathlib.Path, dict]]:
     return sorted(itens, key=lambda x: x[1]["_quando"])
 
 
-def publicados_hoje_e_ultimo() -> tuple[int, dt.datetime | None]:
+def eh_story(item: dict) -> bool:
+    return str(item.get("tipo", "")).lower() == "story"
+
+
+def publicados_hoje_e_ultimo(stories: bool = False) -> tuple[int, dt.datetime | None]:
+    """Conta o que saiu hoje pela API. Reels e stories têm contas separadas."""
     hoje = agora().date()
     n, ultimo = 0, None
     for arq in PUBLICADOS.glob("*.json"):
         with arq.open(encoding="utf-8") as f:
             item = json.load(f)
+        if eh_story(item) != stories:
+            continue
         quando = item.get("publicado_em")
         if not quando:
             continue
@@ -173,6 +188,16 @@ def aplicar_bonde(item: dict, b: dict) -> int | None:
         if item["colaboradores"]:
             log(f"  colaboradores convidados: {', '.join(item['colaboradores'])}")
     return proximo
+
+
+def validar_story(item: dict) -> None:
+    for campo in ("publicar_em", "imagem"):
+        if not item.get(campo):
+            raise ValueError(f"campo obrigatório vazio: {campo}")
+    if not item["imagem"].lower().endswith((".jpg", ".jpeg")):
+        raise ValueError("story precisa de imagem JPEG (.jpg)")
+    if not (RAIZ / item["imagem"]).is_file():
+        raise ValueError(f"imagem não encontrada no repositório: {item['imagem']}")
 
 
 def validar(item: dict) -> None:
@@ -241,6 +266,74 @@ def publicar(item: dict, ig_id: str) -> dict:
     return {"media_id": media_id, "link": info.get("permalink"), "publicado_em": agora().isoformat(timespec="seconds")}
 
 
+def publicar_story(item: dict, ig_id: str) -> dict:
+    url = f"{base_url_video()}/{item['imagem']}"
+    esperar_video_publico(url)
+    container = api("POST", f"{ig_id}/media", media_type="STORIES", image_url=url)["id"]
+    for _ in range(30):                       # imagem costuma ficar pronta em segundos
+        st = api("GET", container, fields="status_code,status")
+        if st.get("status_code") == "FINISHED":
+            break
+        if st.get("status_code") in ("ERROR", "EXPIRED"):
+            raise RuntimeError(f"Instagram recusou a imagem do story: {st.get('status')}")
+        time.sleep(5)
+    else:
+        raise RuntimeError("o Instagram não terminou de processar a imagem do story em 2,5 minutos")
+    media_id = api("POST", f"{ig_id}/media_publish", creation_id=container)["id"]
+    try:
+        link = api("GET", media_id, fields="permalink").get("permalink")
+    except RuntimeError:
+        link = None
+    return {"media_id": media_id, "link": link, "publicado_em": agora().isoformat(timespec="seconds")}
+
+
+def rodar_stories(stories: list[tuple[pathlib.Path, dict]], ig_id: str) -> int:
+    """Publica os stories vencidos, em ordem. Se um falhar, os seguintes do lote ficam cancelados
+    (não sai sequência pela metade sem a capa ou com peça fora de ordem)."""
+    falhas, feitos = 0, 0
+    n_hoje, _ = publicados_hoje_e_ultimo(stories=True)
+    parar = None
+    for arq, item in stories:
+        destino = PUBLICADOS / arq.name
+        try:
+            if parar:
+                raise RuntimeError(parar)
+            if n_hoje >= MAX_STORIES_POR_DIA:
+                log(f"Story {arq.name} fica para amanhã: já saíram {n_hoje} stories hoje (teto {MAX_STORIES_POR_DIA}).")
+                break
+            if feitos >= MAX_STORIES_POR_RODADA:
+                log(f"Story {arq.name} fica para a próxima rodada (teto de {MAX_STORIES_POR_RODADA} por rodada).")
+                break
+            if agora() - item["_quando"] > dt.timedelta(hours=MAX_ATRASO_HORAS):
+                raise RuntimeError(f"atrasado mais de {MAX_ATRASO_HORAS} h; story não publicado")
+            if feitos:
+                time.sleep(random.uniform(*PAUSA_STORY_S))
+            log(f"Publicando story {arq.name}")
+            validar_story(item)
+            res = publicar_story(item, ig_id)
+            item.update(res, status="publicado")
+            feitos += 1
+            n_hoje += 1
+            log(f"  story publicado: {res.get('link') or res['media_id']}")
+            img = RAIZ / item["imagem"]
+            if img.exists():
+                img.unlink()                    # tira a imagem do site público depois de publicada
+        except Exception as e:                  # noqa: BLE001
+            falhas += 1
+            if not parar:
+                parar = f"cancelado: o story anterior ({arq.name}) falhou"
+                item.update(status="erro", erro=str(e)[:500])
+                log(f"  ERRO no story: {e}")
+            else:
+                item.update(status="cancelado", erro=parar)
+            item["tentativa_em"] = agora().isoformat(timespec="seconds")
+        item.pop("_quando", None)
+        with destino.open("w", encoding="utf-8") as f:
+            json.dump(item, f, ensure_ascii=False, indent=2)
+        arq.unlink()
+    return falhas
+
+
 def teste_container() -> int:
     """Valida chave, permissão, link do vídeo e trial_params sem publicar nada."""
     eu = api("GET", "me", fields="user_id,username")
@@ -261,12 +354,36 @@ def teste_container() -> int:
         st = api("GET", container, fields="status_code,status")
         if st.get("status_code") == "FINISHED":
             log("OK: o Instagram aceitou o vídeo como reel de teste. Nada foi publicado; o contêiner expira em 24 h.")
-            return 0
+            return teste_story(ig_id)
         if st.get("status_code") in ("ERROR", "EXPIRED"):
             log(f"ERRO no processamento: {st.get('status')}")
             return 1
         time.sleep(10)
     log("ERRO: processamento não terminou em 10 minutos")
+    return 1
+
+
+def teste_story(ig_id: str) -> int:
+    """Se existir videos/_teste_story.jpg, cria um contêiner de story e NÃO publica."""
+    if not (RAIZ / "videos" / "_teste_story.jpg").is_file():
+        return 0
+    url = f"{base_url_video()}/videos/_teste_story.jpg"
+    esperar_video_publico(url)
+    try:
+        c = api("POST", f"{ig_id}/media", media_type="STORIES", image_url=url)["id"]
+    except RuntimeError as e:
+        log(f"ERRO: a chave não aceitou criar story: {e}")
+        return 1
+    for _ in range(30):
+        st = api("GET", c, fields="status_code,status")
+        if st.get("status_code") == "FINISHED":
+            log("OK: o Instagram aceitou a imagem como story. Nada foi publicado; o contêiner expira em 24 h.")
+            return 0
+        if st.get("status_code") in ("ERROR", "EXPIRED"):
+            log(f"ERRO no story de teste: {st.get('status')}")
+            return 1
+        time.sleep(5)
+    log("ERRO: story de teste não ficou pronto em 2,5 minutos")
     return 1
 
 
@@ -281,6 +398,8 @@ def medir() -> int:
             item = json.load(f)
         if item.get("status") != "publicado" or item.get("insights_48h") or not item.get("media_id"):
             continue
+        if eh_story(item):
+            continue                            # story some em 24 h; insights de story ficam fora daqui
         quando = dt.datetime.fromisoformat(item["publicado_em"]).astimezone(BRT)
         if agora() - quando < dt.timedelta(hours=48):
             continue
@@ -529,11 +648,14 @@ def main() -> int:
     log(f"Fila: {len(fila)} agendado(s), {len(vencidos)} com horário vencido")
     if DRY_RUN:
         for a, i in fila:
-            log(f"  {i['_quando']:%d/%m %H:%M} · {'TESTE' if i.get('teste', True) else 'SEGUIDORES'} · {a.name}")
+            tipo = 'STORY' if eh_story(i) else ('TESTE' if i.get('teste', True) else 'SEGUIDORES')
+            log(f"  {i['_quando']:%d/%m %H:%M} · {tipo} · {a.name}")
         return 0
 
-    falhas = 0
-    for arq, item in vencidos[:1]:              # no máximo 1 publicação por rodada
+    stories_vencidos = [(a, i) for a, i in vencidos if eh_story(i)]
+    reels_vencidos = [(a, i) for a, i in vencidos if not eh_story(i)]
+    falhas = rodar_stories(stories_vencidos, ig_id) if stories_vencidos else 0
+    for arq, item in reels_vencidos[:1]:        # no máximo 1 reel por rodada
         n_hoje, ultimo = publicados_hoje_e_ultimo()
         if n_hoje >= MAX_API_POR_DIA:
             log(f"Pulado {arq.name}: já saíram {n_hoje} pela API hoje (teto {MAX_API_POR_DIA}).")

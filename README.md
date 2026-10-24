@@ -35,6 +35,24 @@ Roda no GitHub Actions a cada 30 minutos, com o computador desligado. Os remixes
 
 Vídeo: MP4 (H.264 + AAC), vertical 9:16, 15 a 30 s, até ~50 MB.
 
+## Stories (desde 24/10/2026)
+
+Vitrine de peças à venda. Um `.json` por story em `fila/` e a imagem em `videos/stories/`:
+
+```json
+{
+  "tipo": "story",
+  "publicar_em": "2026-10-25T19:00:00-03:00",
+  "imagem": "videos/stories/2026-10-25_01_capa.jpg"
+}
+```
+
+- Imagem **JPEG** 1080x1920 (a API só aceita JPEG). Sem legenda, sem figurinha: o texto vai na própria imagem.
+- Stories **não contam** no teto dos reels. Todos os vencidos saem na mesma rodada, na ordem do nome do arquivo, com pausa de 8 a 20 s entre um e outro. Teto: 10 por rodada e 15 por dia.
+- Se um story falhar, os seguintes do mesmo lote ficam como `cancelado` em `publicados/` (para não sair sequência pela metade).
+- Depois de publicado, a imagem sai de `videos/stories/`.
+- O modo `teste` também cria um story de teste com `videos/_teste_story.jpg` e **não** publica.
+
 ## Travas de segurança
 
 Espelham o Vault OKL ("Análise de Reels - Remix e Teste", 22/10/2026): base normal às 07h pela API, camada de teste às 09h30, 14h e 19h30; remixes das 11h e 17h pelo app.
