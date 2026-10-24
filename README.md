@@ -68,5 +68,5 @@ O workflow **Responder comentários do YouTube** roda a cada 30 min e responde t
 - Não guarda estado: um comentário conta como respondido quando o canal já respondeu depois dele na mesma conversa. No máximo 4 respostas do canal por conversa e 40 por rodada.
 - Pula spam (link, telefone, "meu canal", cripto) e xingamento pesado. Não põe link na resposta.
 - Em vídeo de criador autorizado (título ou descrição com um @ que não é o nosso), não diz que a peça é original nem que está à venda.
-- Segredos: `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` (conta vendas.okl27, escopo `youtube.force-ssl`, app "OKL Respostas" no Google Cloud, em produção para a chave não vencer em 7 dias).
+- Segredos: `YT_CLIENT_SECRET` e `YT_REFRESH_TOKEN` (o `YT_CLIENT_ID` é público e fica no próprio workflow) (conta vendas.okl27, escopo `youtube.force-ssl`, app "OKL Respostas" no Google Cloud, em produção para a chave não vencer em 7 dias).
 - Simular: Actions → Responder comentários do YouTube → Run workflow → `dry_run = 1`.

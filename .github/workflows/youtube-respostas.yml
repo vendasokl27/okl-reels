@@ -30,7 +30,8 @@ jobs:
           python-version: "3.12"
       - name: Responder na voz do Dr. X
         env:
-          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          # ID público do cliente OAuth do app "OKL Respostas" (Google Cloud, projeto okl-respostas). Não é segredo.
+          YT_CLIENT_ID: 562781983832-95tqbn7d5gktl30ojli3t9k192gjvbau.apps.googleusercontent.com
           YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
           YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
           DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
