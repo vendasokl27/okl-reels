@@ -75,6 +75,12 @@ A chave do Instagram vale 60 dias. O workflow **Renovar chave do Instagram** rod
 
 O workflow **Responder comentários do YouTube** roda a cada 30 min e responde todo comentário novo do canal VENDAS OKL na voz do **Dr. X**, o Cientista Maluco: quem segue é "cobaia", quem compra sai "vacinado contra réplica", assinatura "~Dr. X".
 
+**Regra (Thiago, 24/10/2026): o YouTube não vende.** Lá o laboratório só mostra; a plataforma de vendas é o **Instagram @vendas.okl**. Toda resposta (menos a de hater) manda seguir o Instagram e, para comprar, chamar no Direct de lá. Nada de preço, WhatsApp, Pix, frete ou link. A função `conferir_regra()` trava o robô (sai com erro) se algum texto do banco fugir disso.
+
+A cada rodada, além de responder:
+- **Descrições:** troca, vídeo por vídeo (inclusive agendados), o rodapé antigo que mandava para o WhatsApp pelo novo: "🛒 Aqui no YouTube a gente só mostra. Venda é só no Instagram @vendas.okl…". Até 20 por rodada; descrição já certa não é tocada.
+- **Comentário de abertura:** todo vídeo público dos últimos 30 dias que ainda não tem comentário do canal ganha um do Dr. X mandando para o Instagram (texto próprio para vídeo de criador). Até 10 por rodada. A API não fixa comentário: fixar é no app.
+
 - Script: `scripts/youtube_respostas.py`. Testar o estilo sem internet: `python scripts/youtube_respostas.py --teste "quanto custa?"`.
 - Não guarda estado: um comentário conta como respondido quando o canal já respondeu depois dele na mesma conversa. No máximo 4 respostas do canal por conversa e 40 por rodada.
 - Pula spam (link, telefone, "meu canal", cripto) e xingamento pesado. Não põe link na resposta.
