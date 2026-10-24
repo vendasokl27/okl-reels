@@ -59,3 +59,14 @@ Todo dia às 08h23 o robô lê views, alcance, compartilhamentos, salvamentos, c
 ## Renovação da chave
 
 A chave do Instagram vale 60 dias. O workflow **Renovar chave do Instagram** roda nos dias 1 e 15 e estende a validade. Se a Meta devolver uma chave diferente, ele avisa por e-mail (ou grava sozinho, se existir o segredo opcional `GH_PAT`).
+
+## Respostas automáticas no YouTube (Dr. X)
+
+O workflow **Responder comentários do YouTube** roda a cada 30 min e responde todo comentário novo do canal VENDAS OKL na voz do **Dr. X**, o Cientista Maluco: quem segue é "cobaia", quem compra sai "vacinado contra réplica", assinatura "~Dr. X".
+
+- Script: `scripts/youtube_respostas.py`. Testar o estilo sem internet: `python scripts/youtube_respostas.py --teste "quanto custa?"`.
+- Não guarda estado: um comentário conta como respondido quando o canal já respondeu depois dele na mesma conversa. No máximo 4 respostas do canal por conversa e 40 por rodada.
+- Pula spam (link, telefone, "meu canal", cripto) e xingamento pesado. Não põe link na resposta.
+- Em vídeo de criador autorizado (título ou descrição com um @ que não é o nosso), não diz que a peça é original nem que está à venda.
+- Segredos: `YT_CLIENT_ID`, `YT_CLIENT_SECRET`, `YT_REFRESH_TOKEN` (conta vendas.okl27, escopo `youtube.force-ssl`, app "OKL Respostas" no Google Cloud, em produção para a chave não vencer em 7 dias).
+- Simular: Actions → Responder comentários do YouTube → Run workflow → `dry_run = 1`.

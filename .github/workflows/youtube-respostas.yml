@@ -1,0 +1,37 @@
+name: Responder comentários do YouTube
+
+# O Dr. X responde sozinho todo comentário novo do canal VENDAS OKL.
+# Estilo e regras: scripts/youtube_respostas.py e a nota do personagem no Vault OKL.
+
+on:
+  schedule:
+    - cron: "22,52 * * * *"     # a cada 30 min (o GitHub pode atrasar alguns minutos)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = só mostrar o que responderia, sem responder"
+        default: "1"
+
+concurrency:
+  group: youtube-respostas
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  responder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Responder na voz do Dr. X
+        env:
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || '0' }}
+        run: python scripts/youtube_respostas.py
