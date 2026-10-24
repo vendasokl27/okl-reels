@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       modo:
-        description: "conferir = só a chave e a fila · teste = cria um reel de teste sem publicar · publicar = publica o que venceu"
+        description: "conferir = só a chave e a fila · teste = cria um reel de teste sem publicar · publicar = publica o que venceu · medir = insights 48 h + collabs · colab = diagnóstico de colaboradores + collabs"
         type: choice
-        options: [conferir, teste, publicar, medir]
+        options: [conferir, teste, publicar, medir, colab]
         default: conferir
 
 concurrency:
@@ -18,6 +18,7 @@ concurrency:
 
 permissions:
   contents: write
+  issues: write       # aviso "Collab: convite pendente para trocar no app"
 
 jobs:
   publicar:
@@ -32,6 +33,7 @@ jobs:
       - name: Publicar o que está com horário vencido
         env:
           IG_TOKEN: ${{ secrets.IG_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODO: ${{ github.event.inputs.modo || (github.event.schedule == '23 11 * * *' && 'medir') || 'publicar' }}
         run: python scripts/publicar.py
       - name: Gravar o resultado no repositório
@@ -39,5 +41,5 @@ jobs:
         run: |
           git config user.name "okl-bot"
           git config user.email "okl-bot@users.noreply.github.com"
-          git add -A fila publicados videos
+          git add -A fila publicados videos bonde.json relatorios
           git diff --cached --quiet || (git commit -m "Publicação $(date -u +%FT%H:%MZ)" && git pull --rebase && git push)

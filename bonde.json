@@ -1,0 +1,45 @@
+{
+  "_leia": "Bonde de collab do @vendas.okl (Mapa de Collabs - Posts de IA, Vault OKL, 24/10/2026). Em todo reel que vai para os seguidores (teste: false) o robô convida as 'fixas' + 1 da 'rotacao' (a API aceita no máximo 3). Todo dia às 08h23 ele confere quem aceitou nos posts de 1 a 7 dias (inclusive os feitos no app), atualiza o 'placar' e tira do bonde quem deixar 'limite_pendentes_seguidos' convites seguidos pendentes. 'nunca_convidar' é tirado até de lista manual; 'so_com_conversa' fica fora da escolha automática, mas entra se vier no campo 'colaboradores' do JSON. Para um reel sair sem collab: \"bonde\": false no JSON da fila.",
+  "fixas": [
+    "bdo_019_",
+    "oakley_landia015"
+  ],
+  "n_fixas": 2,
+  "rotacao": [
+    "oos_bdo_041",
+    "bdo_dluxo062x061",
+    "aura_labcomp",
+    "elite75okl",
+    "2e.importss",
+    "amantes_de_oakley",
+    "oakley_2.2",
+    "joiasdaoakley",
+    "oklscience",
+    "bdo_062"
+  ],
+  "proxima_rotacao": 0,
+  "limite_pendentes_seguidos": 2,
+  "nunca_convidar": {
+    "nana.surfshop_": "rifa (destaques Bilhetes e Ganhadores)",
+    "quadrilha.da.okl.oficial": "perdeu um perfil de 273k; nunca aceitou"
+  },
+  "so_com_conversa": {
+    "oakley.specialist": "parceiro (Tio Gary): combinar por DM antes; 3 convites pendentes desde 30/09",
+    "oakley.gang": "aceitou 5 em abril; 4 pendentes desde 31/07",
+    "mafia_da_okl": "nunca aceitou convite frio; bio: parcerias via direct",
+    "arsenal.da_okl": "nunca aceitou convite frio",
+    "quadrilha_dos_bdo": "pendente em 11, 20 e 23/10",
+    "diretodocofre": "nunca aceitou convite frio",
+    "1source.boy": "nunca aceitou convite frio",
+    "artigooakley": "loja concorrente; 0 de 4",
+    "srsraokl": "0 de 2",
+    "andre11mello": "página grande; não aceita convite frio",
+    "culturasnkrs": "0 de 2",
+    "peteryeedesign": "autorizou YouTube, não aceita collab",
+    "igao": "celebridade",
+    "gesusgrau": "não aceita convite frio"
+  },
+  "fora_automatico": {},
+  "placar": {},
+  "posts_conferidos": []
+}

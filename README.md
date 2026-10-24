@@ -45,6 +45,16 @@ Espelham o Vault OKL ("Análise de Reels - Remix e Teste", 22/10/2026): base nor
 - passou mais de **3 h** do horário, não publica: marca como atrasado para não furar a cadência;
 - reel de teste com coautor é recusado (collab sai sempre normal).
 
+## Collab automático (bonde)
+
+Desde 24/10/2026 (Vault OKL, "Mapa de Collabs - Posts de IA").
+
+- Todo reel que vai para os seguidores (`teste: false`) sai com o bonde de `bonde.json` convidado: as `fixas` + a próxima da `rotacao`, até **3** (limite da API; no app são 5). Para mandar outra lista, use `colaboradores` no JSON; para sair sem collab, `"bonde": false`.
+- `nunca_convidar` é tirado até de lista manual. `so_com_conversa` fica fora da escolha automática.
+- Todo dia às 08h23, junto com os insights, o robô lê quem aceitou nos posts de 1 a 7 dias (**inclusive os postados no app**), atualiza o `placar` e `relatorios/collab.md`, e tira do bonde quem deixar 2 convites seguidos pendentes (a primeira da rotação sobe para fixa).
+- Se um post de ontem tem convite pendente, o robô abre (ou comenta) a issue **"Collab: convite pendente para trocar no app"** com a sugestão de troca. A API não troca colaborador depois de publicado: a troca é no app.
+- Diagnóstico: Actions → Publicar reels → Run workflow → modo `colab`. Lê os colaboradores dos últimos posts e cria um contêiner com colaborador **sem publicar**.
+
 ## Insights
 
 Todo dia às 08h23 o robô lê views, alcance, compartilhamentos, salvamentos, curtidas e comentários dos reels publicados há 48 h ou mais e grava em `insights_48h` no JSON de cada um, em `publicados/`.

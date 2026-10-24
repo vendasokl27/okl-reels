@@ -10,8 +10,15 @@ Variáveis de ambiente:
   IG_API_VERSION versão da Graph API (padrão v23.0)
   BASE_URL_VIDEO endereço público onde os vídeos ficam (padrão: GitHub Pages do repositório)
   MODO           "publicar" (padrão), "conferir" (só a chave e a fila),
-                 "teste" (cria um reel de teste com videos/_teste.mp4 e NÃO publica) ou
-                 "medir" (lê os insights de 48 h dos reels publicados)
+                 "teste" (cria um reel de teste com videos/_teste.mp4 e NÃO publica),
+                 "medir" (lê os insights de 48 h dos reels publicados e confere os collabs) ou
+                 "colab" (diagnóstico de colaboradores na API + conferência dos collabs)
+
+Collab automático (24/10/2026): todo reel que vai para os seguidores (teste: false) sai com
+o bonde de bonde.json convidado (fixas + 1 da rotação, até 3, limite da API). Todo dia o
+robô lê quem aceitou nos posts de 1 a 7 dias, inclusive os feitos no app, atualiza o placar,
+tira do bonde quem deixar 2 convites seguidos pendentes e abre um aviso (issue) quando um
+post de ontem tem convite pendente que vale trocar no app.
 """
 from __future__ import annotations
 
@@ -41,6 +48,11 @@ MAX_API_POR_DIA = 4
 MIN_HORAS_ENTRE_API = 2
 MAX_ATRASO_HORAS = 3           # passou disso, não publica: marca como atrasado
 GRADUACOES = {"SS_PERFORMANCE", "MANUAL"}
+
+BONDE = RAIZ / "bonde.json"
+RELATORIO_COLAB = RAIZ / "relatorios" / "collab.md"
+MAX_COLAB_API = 3              # a API aceita até 3 colaboradores na criação (no app são 5)
+TITULO_AVISO = "Collab: convite pendente para trocar no app"
 
 resumo: list[str] = []
 
@@ -111,6 +123,56 @@ def publicados_hoje_e_ultimo() -> tuple[int, dt.datetime | None]:
     return n, ultimo
 
 
+def _norm(usuario: str) -> str:
+    return str(usuario).strip().lstrip("@").lower()
+
+
+def ler_bonde() -> dict:
+    if not BONDE.is_file():
+        return {}
+    with BONDE.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def gravar_bonde(b: dict) -> None:
+    b["atualizado_em"] = agora().isoformat(timespec="seconds")
+    with BONDE.open("w", encoding="utf-8") as f:
+        json.dump(b, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+
+
+def escolher_bonde(b: dict) -> tuple[list[str], int]:
+    """Fixas + próximas da rotação até MAX_COLAB_API. Devolve (lista, próximo índice da rotação)."""
+    fora = {_norm(u) for u in b.get("nunca_convidar", {})} | {_norm(u) for u in b.get("fora_automatico", {})}
+    fora |= {_norm(u) for u in b.get("so_com_conversa", {})}
+    fixas = [_norm(u) for u in b.get("fixas", []) if _norm(u) not in fora][:MAX_COLAB_API]
+    rot = [_norm(u) for u in b.get("rotacao", []) if _norm(u) not in fora and _norm(u) not in fixas]
+    i = int(b.get("proxima_rotacao", 0))
+    vagas = MAX_COLAB_API - len(fixas)
+    extra = [rot[(i + k) % len(rot)] for k in range(min(vagas, len(rot)))] if rot else []
+    proximo = (i + len(extra)) % len(rot) if rot else 0
+    return fixas + extra, proximo
+
+
+def aplicar_bonde(item: dict, b: dict) -> int | None:
+    """Preenche/filtra item['colaboradores']. Devolve o próximo índice da rotação se usou o bonde."""
+    if not b or item.get("teste", True):
+        return None
+    proximo = None
+    if not item.get("colaboradores") and item.get("bonde", True):
+        item["colaboradores"], proximo = escolher_bonde(b)
+        item["colaboradores_origem"] = "bonde.json"
+    if item.get("colaboradores"):
+        proibidas = {_norm(u) for u in b.get("nunca_convidar", {})}
+        tirar = [u for u in item["colaboradores"] if _norm(u) in proibidas]
+        if tirar:
+            log(f"  tirados da lista (nunca_convidar): {', '.join(tirar)}")
+        item["colaboradores"] = [_norm(u) for u in item["colaboradores"] if _norm(u) not in proibidas][:MAX_COLAB_API]
+        if item["colaboradores"]:
+            log(f"  colaboradores convidados: {', '.join(item['colaboradores'])}")
+    return proximo
+
+
 def validar(item: dict) -> None:
     for campo in ("publicar_em", "video", "legenda"):
         if not item.get(campo):
@@ -150,7 +212,11 @@ def publicar(item: dict, ig_id: str) -> dict:
     if item.get("capa_ms") is not None:
         params["thumb_offset"] = str(int(item["capa_ms"]))
     if item.get("colaboradores"):
-        params["collaborators"] = json.dumps(item["colaboradores"][:3])
+        lista = [_norm(u) for u in item["colaboradores"]][:MAX_COLAB_API]
+        if ler_bonde().get("formato_colaboradores") == "virgula":
+            params["collaborators"] = ",".join(lista)
+        else:
+            params["collaborators"] = json.dumps(lista)
     if item.get("teste", True):
         params["trial_params"] = json.dumps({"graduation_strategy": item.get("graduacao", "SS_PERFORMANCE")})
     if item.get("ia"):
@@ -235,14 +301,213 @@ def medir() -> int:
     return 0
 
 
+def _gh(metodo: str, caminho: str, **corpo) -> dict | list | None:
+    """Chamada à API do GitHub com o GITHUB_TOKEN do próprio workflow (para o aviso por issue)."""
+    tok, repo = os.environ.get("GITHUB_TOKEN", ""), os.environ.get("GITHUB_REPOSITORY", "")
+    if not tok or not repo:
+        return None
+    r = requests.request(metodo, f"https://api.github.com/repos/{repo}/{caminho.lstrip('/')}",
+                         headers={"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json"},
+                         json=corpo or None, timeout=30)
+    if r.status_code >= 400:
+        raise RuntimeError(f"GitHub {metodo} {caminho} -> HTTP {r.status_code}: {r.text[:200]}")
+    return r.json() if r.text else {}
+
+
+def _bonde_disponivel(b: dict) -> list[str]:
+    fora = {_norm(u) for u in b.get("nunca_convidar", {})} | {_norm(u) for u in b.get("fora_automatico", {})}
+    fora |= {_norm(u) for u in b.get("so_com_conversa", {})}
+    vistos, saida = set(), []
+    for u in [*b.get("fixas", []), *b.get("rotacao", [])]:
+        u = _norm(u)
+        if u not in fora and u not in vistos:
+            vistos.add(u)
+            saida.append(u)
+    return saida
+
+
+def avisar_trocas(trocas: list[dict], b: dict) -> None:
+    """Abre/comenta uma issue quando um post de ontem tem convite pendente; fecha quando não há."""
+    try:
+        abertas = [i for i in (_gh("GET", "issues?state=open&per_page=50") or [])
+                   if i.get("title") == TITULO_AVISO and "pull_request" not in i]
+        if not trocas:
+            for i in abertas:
+                _gh("PATCH", f"issues/{i['number']}", state="closed")
+            return
+        linhas = ["Convites de collab que ainda não foram aceitos 24 h depois do post. "
+                  "Se quiser, edite o post no app e troque pelas sugeridas (regra do Mapa de Collabs).", ""]
+        for t in trocas:
+            sugestao = [u for u in _bonde_disponivel(b) if u not in t["no_post"]][:len(t["pendentes"])]
+            linhas.append(f"- **Post de {t['quando']:%d/%m %H:%M}** ({t['link']}): ainda não aceitaram "
+                          f"{', '.join('@' + u for u in t['pendentes'])}."
+                          + (f" Trocar por: {', '.join('@' + u for u in sugestao)}." if sugestao else ""))
+        corpo = "\n".join(linhas)
+        if abertas:
+            _gh("POST", f"issues/{abertas[0]['number']}/comments", body=corpo)
+        else:
+            _gh("POST", "issues", title=TITULO_AVISO, body=corpo)
+        log(f"Aviso de troca enviado ({len(trocas)} post(s)).")
+    except RuntimeError as e:
+        log(f"Aviso de troca não enviado: {e}")
+
+
+def escrever_relatorio_colab(b: dict, conferidos: list[str], trocas: list[dict]) -> None:
+    RELATORIO_COLAB.parent.mkdir(exist_ok=True)
+    fixas = {_norm(u) for u in b.get("fixas", [])}
+    rot = {_norm(u) for u in b.get("rotacao", [])}
+    fora = {_norm(u) for u in b.get("fora_automatico", {})} | {_norm(u) for u in b.get("nunca_convidar", {})}
+    conversa = {_norm(u) for u in b.get("so_com_conversa", {})}
+
+    def papel(u: str) -> str:
+        return ("fixa" if u in fixas else "rotação" if u in rot else "fora" if u in fora
+                else "só com conversa" if u in conversa else "fora do bonde")
+
+    placar = sorted(b.get("placar", {}).items(), key=lambda kv: (-kv[1].get("aceitos", 0), kv[0]))
+    ls = [f"# Collab · placar do bonde (atualizado {agora():%d/%m/%Y %H:%M})", "",
+          "Gerado pelo robô. Conta só posts conferidos a partir de 24/10/2026, 24 h depois de publicados.", "",
+          "| Página | Papel | Convites | Aceitos | Pendentes seguidos | Último post | Último status |",
+          "|---|---|---:|---:|---:|---|---|"]
+    for u, p in placar:
+        ls.append(f"| @{u} | {papel(u)} | {p.get('convites', 0)} | {p.get('aceitos', 0)} | "
+                  f"{p.get('pendentes_seguidos', 0)} | {p.get('ultimo_post', '')} | {p.get('ultimo_status', '')} |")
+    ls += ["", "## Conferidos nesta rodada", ""] + ([f"- {c}" for c in conferidos] or ["- nenhum post novo com 24 h ou mais"])
+    ls += ["", "## Trocar no app hoje", ""]
+    ls += [f"- {t['quando']:%d/%m %H:%M} · {t['link']} · pendentes: {', '.join('@' + u for u in t['pendentes'])}"
+           for t in trocas] or ["- nada"]
+    if b.get("fora_automatico"):
+        ls += ["", "## Saíram do bonde sozinhas", ""] + [f"- @{u}: {m}" for u, m in b["fora_automatico"].items()]
+    with RELATORIO_COLAB.open("w", encoding="utf-8") as f:
+        f.write("\n".join(ls) + "\n")
+
+
+def conferir_colab(ig_id: str | None = None) -> int:
+    """Lê quem aceitou os convites nos posts de 1 a 7 dias e atualiza bonde.json e o relatório."""
+    b = ler_bonde()
+    if not b:
+        log("bonde.json não existe: conferência de collab pulada.")
+        return 0
+    if ig_id is None:
+        eu = api("GET", "me", fields="user_id,username")
+        ig_id = eu.get("user_id") or eu.get("id")
+    midias = api("GET", f"{ig_id}/media", fields="id,timestamp,permalink", limit=30).get("data", [])
+    placar = b.setdefault("placar", {})
+    vistos = list(b.get("posts_conferidos", []))
+    conferidos, trocas, erros, lidos = [], [], [], 0
+    for m in sorted(midias, key=lambda x: x.get("timestamp", "")):
+        quando = dt.datetime.fromisoformat(m["timestamp"]).astimezone(BRT)
+        idade = agora() - quando
+        if idade < dt.timedelta(hours=24) or idade > dt.timedelta(days=7):
+            continue
+        try:
+            colabs = api("GET", f"{m['id']}/collaborators").get("data", [])
+            lidos += 1
+        except RuntimeError as e:
+            erros.append(str(e))
+            continue
+        if not colabs:
+            continue
+        pend = [_norm(c.get("username", "")) for c in colabs
+                if not str(c.get("invite_status", "")).strip().lower().startswith("ac")]
+        no_post = [_norm(c.get("username", "")) for c in colabs]
+        if pend and idade <= dt.timedelta(hours=48):
+            trocas.append({"quando": quando, "link": m.get("permalink", ""), "pendentes": pend, "no_post": no_post})
+        if m["id"] in vistos:
+            continue
+        vistos.append(m["id"])
+        aceitos_post = []
+        for c in colabs:
+            u = _norm(c.get("username", ""))
+            aceitou = str(c.get("invite_status", "")).strip().lower().startswith("ac")
+            p = placar.setdefault(u, {"convites": 0, "aceitos": 0, "pendentes_seguidos": 0})
+            p["convites"] += 1
+            if aceitou:
+                p["aceitos"] += 1
+                p["pendentes_seguidos"] = 0
+                aceitos_post.append(u)
+            else:
+                p["pendentes_seguidos"] += 1
+            p["ultimo_post"] = f"{quando:%d/%m}"
+            p["ultimo_status"] = "aceitou" if aceitou else "pendente"
+        conferidos.append(f"{quando:%d/%m %H:%M} · {m.get('permalink', '')} · aceitaram: "
+                          f"{', '.join(aceitos_post) or 'ninguém'} · pendentes: {', '.join(pend) or 'ninguém'}")
+    if erros and not lidos:
+        log(f"Leitura de colaboradores indisponível com esta chave: {erros[0][:300]}")
+        b["leitura_colaboradores"] = f"indisponível ({agora():%d/%m %H:%M})"
+        gravar_bonde(b)
+        return 0
+    b["leitura_colaboradores"] = f"ok ({agora():%d/%m %H:%M})"
+
+    lim = int(b.get("limite_pendentes_seguidos", 2))
+    for u, p in placar.items():
+        if p.get("pendentes_seguidos", 0) < lim:
+            continue
+        if u in {_norm(x) for x in b.get("fixas", [])} | {_norm(x) for x in b.get("rotacao", [])}:
+            b["fixas"] = [x for x in b.get("fixas", []) if _norm(x) != u]
+            b["rotacao"] = [x for x in b.get("rotacao", []) if _norm(x) != u]
+            b.setdefault("fora_automatico", {})[u] = f"{lim} convites seguidos pendentes (conferido em {agora():%d/%m})"
+            log(f"@{u} saiu do bonde: {lim} convites seguidos pendentes.")
+    while len(b.get("fixas", [])) < int(b.get("n_fixas", 2)) and b.get("rotacao"):
+        promovida = b["rotacao"].pop(0)
+        b["fixas"].append(promovida)
+        log(f"@{promovida} subiu para fixa.")
+    if b.get("rotacao"):
+        b["proxima_rotacao"] = int(b.get("proxima_rotacao", 0)) % len(b["rotacao"])
+    b["posts_conferidos"] = vistos[-300:]
+    gravar_bonde(b)
+    escrever_relatorio_colab(b, conferidos, trocas)
+    for c in conferidos:
+        log(f"Collab {c}")
+    log(f"Collab: {lidos} post(s) lido(s), {len(conferidos)} novo(s) no placar, {len(trocas)} para trocar.")
+    avisar_trocas(trocas, b)
+    return 0
+
+
+def diagnostico_colab() -> int:
+    """Testa, sem publicar, se a chave lê colaboradores e se aceita o campo collaborators."""
+    eu = api("GET", "me", fields="user_id,username")
+    ig_id = eu.get("user_id") or eu.get("id")
+    log(f"Conta: @{eu.get('username')}")
+    midias = api("GET", f"{ig_id}/media", fields="id,timestamp", limit=8).get("data", [])
+    for m in midias:
+        try:
+            colabs = api("GET", f"{m['id']}/collaborators").get("data", [])
+            log(f"Leitura OK {m['timestamp'][:10]}: " + (", ".join(f"{c.get('username')}={c.get('invite_status')}"
+                                                            for c in colabs) or "sem colaborador"))
+        except RuntimeError as e:
+            log(f"Leitura FALHOU {m['timestamp'][:10]}: {e}")
+    url = f"{base_url_video()}/videos/_teste.mp4"
+    esperar_video_publico(url)
+    alvo = (escolher_bonde(ler_bonde())[0] or ["bdo_019_"])[:1]
+    for formato, valor in (("json", json.dumps(alvo)), ("virgula", ",".join(alvo))):
+        try:
+            c = api("POST", f"{ig_id}/media", media_type="REELS", video_url=url, share_to_feed="false",
+                    caption="teste técnico (não publicado)", collaborators=valor)["id"]
+            log(f"Criação OK: contêiner aceito com collaborators no formato '{formato}' ({alvo[0]}). "
+                f"Nada foi publicado; o contêiner expira em 24 h. Contêiner {c}")
+            if formato == "virgula":
+                b = ler_bonde()
+                b["formato_colaboradores"] = "virgula"
+                gravar_bonde(b)
+            return 0
+        except RuntimeError as e:
+            log(f"Criação com collaborators no formato '{formato}' FALHOU: {e}")
+    return 1
+
+
 def main() -> int:
     if MODO == "teste":
         return teste_container()
-    if MODO == "medir":
+    if MODO in ("medir", "colab"):
         if not TOKEN:
             log("IG_TOKEN não configurado.")
             return 1
-        return medir()
+        codigo = medir() if MODO == "medir" else diagnostico_colab()
+        try:
+            conferir_colab()
+        except Exception as e:  # noqa: BLE001  (a conferência de collab nunca derruba a medição)
+            log(f"Conferência de collab falhou: {e}")
+        return codigo
     fila = ler_fila()
     vencidos = [(a, i) for a, i in fila if i["_quando"] <= agora()]
     if not vencidos and not DRY_RUN:
@@ -273,11 +538,17 @@ def main() -> int:
         try:
             if agora() - item["_quando"] > dt.timedelta(hours=MAX_ATRASO_HORAS):
                 raise RuntimeError(f"atrasado mais de {MAX_ATRASO_HORAS} h; não publicado para não furar a cadência")
-            validar(item)
             log(f"Publicando {arq.name} ({'reel de teste, ' + item.get('graduacao', 'SS_PERFORMANCE') if item.get('teste', True) else 'para os seguidores'})")
+            bonde = ler_bonde()
+            proxima_rotacao = aplicar_bonde(item, bonde)
+            validar(item)
             res = publicar(item, ig_id)
             item.update(res, status="publicado")
             log(f"  publicado: {res['link']}")
+            if proxima_rotacao is not None:
+                bonde = ler_bonde()
+                bonde["proxima_rotacao"] = proxima_rotacao
+                gravar_bonde(bonde)
             video = RAIZ / item["video"]
             if video.exists():
                 video.unlink()                  # tira o arquivo do site público depois de publicado
