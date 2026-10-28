@@ -248,8 +248,17 @@ def publicar(item: dict, ig_id: str) -> dict:
         params["trial_params"] = json.dumps({"graduation_strategy": item.get("graduacao", "SS_PERFORMANCE")})
     if item.get("ia"):
         params["is_ai_generated"] = "true"     # selo "Informações de IA" (API desde 22/06/2026)
+    if item.get("marcar"):                    # marcar o criador na mídia (reel aceita só o username)
+        params["user_tags"] = json.dumps([{"username": _norm(u)} for u in item["marcar"]])
 
-    container = api("POST", f"{ig_id}/media", **params)["id"]
+    try:
+        container = api("POST", f"{ig_id}/media", **params)["id"]
+    except RuntimeError as e:
+        if "user_tags" not in params:
+            raise
+        log(f"  a API recusou a marcação na mídia ({e}); publicando só com o @ na legenda")
+        params.pop("user_tags")
+        container = api("POST", f"{ig_id}/media", **params)["id"]
     log(f"  contêiner criado, aguardando o Instagram processar o vídeo")
     for _ in range(60):                       # até 10 minutos
         st = api("GET", container, fields="status_code,status")

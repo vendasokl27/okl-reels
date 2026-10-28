@@ -30,6 +30,7 @@ Roda no GitHub Actions a cada 30 minutos, com o computador desligado. Os remixes
 - `teste`: `true` = reel de teste. `false` = vai direto para os seguidores (reels de venda com preço e de prova social).
 - `graduacao`: `SS_PERFORMANCE` = o Instagram compartilha com os seguidores se performar; `MANUAL` = só você, pelo app.
 - `capa_ms`: momento do vídeo (em milissegundos) usado como capa. Opcional.
+- `marcar`: lista de @ (sem o @) para marcar a pessoa na mídia (`user_tags`). Opcional; vale também para reel de teste. Se a API recusar a marcação, o robô publica do mesmo jeito, só com o @ da legenda, e registra no log.
 - `colaboradores`: lista de até 3 @ (sem o @) para convite de collab. Opcional. **Collab sai sempre normal** (`teste: false`).
 - `ia`: `true` liga o selo "Informações de IA" (vídeos do Cientista Maluco).
 
